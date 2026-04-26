@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+
+# Resolve the script's own directory (follow symlinks) so we can find lib/prompt.txt
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+ROOT_DIR="$(cd -P "$SCRIPT_DIR/.." && pwd)"
+PROMPT_FILE="$ROOT_DIR/lib/prompt.txt"
+
+DEFAULT_MODEL="claude-sonnet-4-6"
+DEFAULT_ITERATIONS=5
+SKILL_DIR="$HOME/.claude/skills/cringelinter"
+SKILL_PATH="$SKILL_DIR/SKILL.md"
+SKILL_URL="https://raw.githubusercontent.com/jbdamask/john-claude-skills/main/skills/cringelinter/SKILL.md"
+GLOBAL_CONFIG="$HOME/.config/cringelint/config"
+LOCAL_CONFIG="./.cringelint.conf"
+
+usage() {
+    cat <<EOF
+cringelint v$VERSION — iteratively de-cringe a markdown document.
+
+Usage:
+  cringelint <file.md> [iterations]
+  cringelint --install-skill
+  cringelint -h | --help
+  cringelint -v | --version
+
+Options:
+  -m, --model MODEL    Claude model (default: $DEFAULT_MODEL)
+  -n, --iterations N   Max iterations (default: $DEFAULT_ITERATIONS)
+  --install-skill      Install the cringelinter skill to ~/.claude/skills/
+  -h, --help           Show this help
+  -v, --version        Show version
+
+Configuration (first match wins):
+  CLI flags > ./.cringelint.conf > ~/.config/cringelint/config > defaults
+
+Output (in current directory):
+  - Versioned files: foo.md -> foo-v1.md -> foo-v2.md ...
+  - cringelog.jsonl appended each iteration
+EOF
+}
+
+err()  { echo "cringelint: $*" >&2; }
+die()  { err "$*"; exit 1; }
+
+install_skill() {
+    if [ -f "$SKILL_PATH" ]; then
+        read -r -p "Skill already exists at $SKILL_PATH. Overwrite? [y/N] " ans
+        case "$ans" in
+            [yY]|[yY][eE][sS]) ;;
+            *) echo "Aborted."; return 1 ;;
+        esac
+    fi
+    mkdir -p "$SKILL_DIR"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$SKILL_URL" -o "$SKILL_PATH" || return 1
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q "$SKILL_URL" -O "$SKILL_PATH" || return 1
+    else
+        err "Need curl or wget to install the skill."
+        return 1
+    fi
+    echo "Skill installed: $SKILL_PATH"
+    return 0
+}
+
+next_version() {
+    local file="$1"
+    local dir stem ext
+    dir=$(dirname "$file")
+    stem=$(basename "$file")
+    ext="${stem##*.}"
+    stem="${stem%.*}"
+    if [[ "$stem" =~ ^(.*)-v([0-9]+)$ ]]; then
+        echo "${dir}/${BASH_REMATCH[1]}-v$(( BASH_REMATCH[2] + 1 )).${ext}"
+    else
+        echo "${dir}/${stem}-v1.${ext}"
+    fi
+}
+
+# Read a single key from a shell-style key=value file without sourcing it
+read_config_key() {
+    local file="$1" key="$2"
+    [ -f "$file" ] || return 0
+    awk -F= -v k="$key" '
+        $0 ~ "^[[:space:]]*"k"=" {
+            sub("^[[:space:]]*"k"=", "")
+            gsub(/^["'\'']|["'\'']$/, "")
+            print
+            exit
+        }
+    ' "$file"
+}
+
+# --- Parse args ---
+MODEL=""
+ITERATIONS=""
+POSITIONAL=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        -v|--version) echo "cringelint $VERSION"; exit 0 ;;
+        --install-skill)
+            if install_skill; then exit 0; else exit 1; fi
+            ;;
+        -m|--model)     [ $# -ge 2 ] || die "$1 requires a value"; MODEL="$2"; shift 2 ;;
+        -n|--iterations)[ $# -ge 2 ] || die "$1 requires a value"; ITERATIONS="$2"; shift 2 ;;
+        --) shift; while [ $# -gt 0 ]; do POSITIONAL+=("$1"); shift; done ;;
+        -*) die "Unknown flag: $1" ;;
+        *)  POSITIONAL+=("$1"); shift ;;
+    esac
+done
+
+if [ "${#POSITIONAL[@]}" -eq 0 ]; then
+    usage
+    exit 1
+fi
+INPUT="${POSITIONAL[0]}"
+if [ "${#POSITIONAL[@]}" -ge 2 ] && [ -z "$ITERATIONS" ]; then
+    ITERATIONS="${POSITIONAL[1]}"
+fi
+
+# --- Resolve config (CLI > local > global > default) ---
+if [ -z "$MODEL" ];      then MODEL=$(read_config_key "$LOCAL_CONFIG" MODEL); fi
+if [ -z "$MODEL" ];      then MODEL=$(read_config_key "$GLOBAL_CONFIG" MODEL); fi
+if [ -z "$MODEL" ];      then MODEL="$DEFAULT_MODEL"; fi
+
+if [ -z "$ITERATIONS" ]; then ITERATIONS=$(read_config_key "$LOCAL_CONFIG" ITERATIONS); fi
+if [ -z "$ITERATIONS" ]; then ITERATIONS=$(read_config_key "$GLOBAL_CONFIG" ITERATIONS); fi
+if [ -z "$ITERATIONS" ]; then ITERATIONS="$DEFAULT_ITERATIONS"; fi
+
+[[ "$ITERATIONS" =~ ^[1-9][0-9]*$ ]] || die "iterations must be a positive integer (got: $ITERATIONS)"
+
+# --- Preflight ---
+command -v claude >/dev/null 2>&1 || die "Claude Code CLI not found on PATH. Install: https://claude.com/claude-code"
+claude --version >/dev/null 2>&1 || die "\`claude --version\` failed. Make sure Claude Code is installed and authenticated."
+
+if [ ! -f "$SKILL_PATH" ]; then
+    err "cringelinter skill not found at $SKILL_PATH"
+    if [ -t 0 ] && [ -t 1 ]; then
+        read -r -p "Install it now from $SKILL_URL? [y/N] " ans
+        case "$ans" in
+            [yY]|[yY][eE][sS]) install_skill || die "Skill install failed." ;;
+            *) die "Skill required. Re-run with --install-skill or install manually." ;;
+        esac
+    else
+        die "Run \`cringelint --install-skill\` first."
+    fi
+fi
+
+[ -f "$INPUT" ] || die "File not found: $INPUT"
+case "$INPUT" in
+    *.md) ;;
+    *) die "Input must be a .md file (got: $INPUT)" ;;
+esac
+[ -f "$PROMPT_FILE" ] || die "Prompt file missing: $PROMPT_FILE (broken install?)"
+
+# --- Loop ---
+echo "cringelint: model=$MODEL iterations=$ITERATIONS file=$INPUT"
+current_file="$INPUT"
+count=0
+
+while [ "$count" -lt "$ITERATIONS" ]; do
+    echo ""
+    echo "=== Iteration $((count + 1)) of $ITERATIONS on: $current_file ==="
+    BASENAME=$(basename "$current_file")
+    OUTPUT=$({
+        cat "$PROMPT_FILE"
+        printf '\nThe file to process is: %s\n\n<file_content>\n' "$BASENAME"
+        cat "$current_file"
+        printf '\n</file_content>\n'
+    } | claude -p --model "$MODEL" --dangerously-skip-permissions)
+    echo "$OUTPUT"
+    count=$((count + 1))
+
+    if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+        echo ""
+        echo "cringelint: complete after $count iteration(s)."
+        exit 0
+    fi
+
+    next_file=$(next_version "$current_file")
+    if [ ! -f "$next_file" ]; then
+        die "Expected output file '$next_file' was not created by Claude."
+    fi
+    current_file="$next_file"
+    sleep 2
+done
+
+echo ""
+echo "cringelint: reached max iterations ($ITERATIONS) without COMPLETE."
+exit 1
