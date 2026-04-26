@@ -5,7 +5,12 @@
 ## Requirements
 
 - [Claude Code](https://claude.com/claude-code) installed and authenticated (`claude --version` should work).
-- The `cringelinter` skill installed at `~/.claude/skills/cringelinter/`. The CLI will offer to install it on first run.
+- The `cringelinter` skill discoverable in any one of:
+  - `~/.claude/skills/cringelinter/SKILL.md` (manual install)
+  - `./.claude/skills/cringelinter/SKILL.md` (project-local)
+  - `~/.claude/plugins/marketplaces/<marketplace>/skills/cringelinter/SKILL.md` (e.g. installed via the [john-claude-skills](https://github.com/jbdamask/john-claude-skills) marketplace)
+
+  If none are present, the CLI will offer to install one on first run.
 
 ## Install
 

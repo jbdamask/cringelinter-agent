@@ -16,9 +16,21 @@ PROMPT_FILE="$ROOT_DIR/lib/prompt.txt"
 
 DEFAULT_MODEL="claude-sonnet-4-6"
 DEFAULT_ITERATIONS=5
-SKILL_DIR="$HOME/.claude/skills/cringelinter"
-SKILL_PATH="$SKILL_DIR/SKILL.md"
+SKILL_INSTALL_DIR="$HOME/.claude/skills/cringelinter"
+SKILL_INSTALL_PATH="$SKILL_INSTALL_DIR/SKILL.md"
 SKILL_URL="https://raw.githubusercontent.com/jbdamask/john-claude-skills/main/skills/cringelinter/SKILL.md"
+
+# Locations Claude Code may discover the skill from. The preflight only needs
+# one to be present — Claude Code itself is responsible for actually loading it.
+find_skill() {
+    local f
+    [ -f "$HOME/.claude/skills/cringelinter/SKILL.md" ] && { echo "$HOME/.claude/skills/cringelinter/SKILL.md"; return 0; }
+    [ -f "./.claude/skills/cringelinter/SKILL.md" ]    && { echo "./.claude/skills/cringelinter/SKILL.md";    return 0; }
+    for f in "$HOME"/.claude/plugins/marketplaces/*/skills/cringelinter/SKILL.md; do
+        [ -f "$f" ] && { echo "$f"; return 0; }
+    done
+    return 1
+}
 GLOBAL_CONFIG="$HOME/.config/cringelint/config"
 LOCAL_CONFIG="./.cringelint.conf"
 
@@ -52,23 +64,25 @@ err()  { echo "cringelint: $*" >&2; }
 die()  { err "$*"; exit 1; }
 
 install_skill() {
-    if [ -f "$SKILL_PATH" ]; then
-        read -r -p "Skill already exists at $SKILL_PATH. Overwrite? [y/N] " ans
+    local existing
+    if existing=$(find_skill); then
+        echo "Skill already discoverable at: $existing"
+        read -r -p "Install another copy at $SKILL_INSTALL_PATH anyway? [y/N] " ans
         case "$ans" in
             [yY]|[yY][eE][sS]) ;;
             *) echo "Aborted."; return 1 ;;
         esac
     fi
-    mkdir -p "$SKILL_DIR"
+    mkdir -p "$SKILL_INSTALL_DIR"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$SKILL_URL" -o "$SKILL_PATH" || return 1
+        curl -fsSL "$SKILL_URL" -o "$SKILL_INSTALL_PATH" || return 1
     elif command -v wget >/dev/null 2>&1; then
-        wget -q "$SKILL_URL" -O "$SKILL_PATH" || return 1
+        wget -q "$SKILL_URL" -O "$SKILL_INSTALL_PATH" || return 1
     else
         err "Need curl or wget to install the skill."
         return 1
     fi
-    echo "Skill installed: $SKILL_PATH"
+    echo "Skill installed: $SKILL_INSTALL_PATH"
     return 0
 }
 
@@ -144,13 +158,18 @@ if [ -z "$ITERATIONS" ]; then ITERATIONS="$DEFAULT_ITERATIONS"; fi
 command -v claude >/dev/null 2>&1 || die "Claude Code CLI not found on PATH. Install: https://claude.com/claude-code"
 claude --version >/dev/null 2>&1 || die "\`claude --version\` failed. Make sure Claude Code is installed and authenticated."
 
-if [ ! -f "$SKILL_PATH" ]; then
-    err "cringelinter skill not found at $SKILL_PATH"
+if SKILL_FOUND=$(find_skill); then
+    echo "cringelint: skill found at $SKILL_FOUND"
+else
+    err "cringelinter skill not found in any of:"
+    err "  ~/.claude/skills/cringelinter/SKILL.md"
+    err "  ./.claude/skills/cringelinter/SKILL.md"
+    err "  ~/.claude/plugins/marketplaces/*/skills/cringelinter/SKILL.md"
     if [ -t 0 ] && [ -t 1 ]; then
         read -r -p "Install it now from $SKILL_URL? [y/N] " ans
         case "$ans" in
             [yY]|[yY][eE][sS]) install_skill || die "Skill install failed." ;;
-            *) die "Skill required. Re-run with --install-skill or install manually." ;;
+            *) die "Skill required. Re-run with --install-skill, install via the john-claude-skills marketplace, or copy SKILL.md manually." ;;
         esac
     else
         die "Run \`cringelint --install-skill\` first."

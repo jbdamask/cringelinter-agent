@@ -6,7 +6,7 @@
 
 **Status:** Active
 **Started:** 2026-04-26
-**Last Updated:** 2026-04-26
+**Last Updated:** 2026-04-26 (skill discovery fix)
 
 ---
 
@@ -34,5 +34,17 @@ The installer (`install.sh`) handles both modes: `./install.sh` from a clone, an
 - Source skill: https://github.com/jbdamask/john-claude-skills/tree/main/skills/cringelinter
 - Predecessor: https://github.com/jbdamask/scratch/tree/main/TOOLS/cringelinter-ralph
 - Initial commit: 5bd7c08
+
+---
+
+## 2026-04-26 - Skill discovery: check more than one location
+
+First real-world run surfaced an obvious gap: the preflight only checked `~/.claude/skills/cringelinter/SKILL.md`, but the user had the skill installed via the `john-claude-skills` plugin marketplace at `~/.claude/plugins/marketplaces/john-claude-skills/skills/cringelinter/SKILL.md`. The CLI told them the skill was missing and offered to install it — even though Claude Code would have happily found and used the marketplace copy.
+
+The fix is to check every place Claude Code might discover a skill, not just the manual install path. The preflight now looks in three locations: the user-level `~/.claude/skills/`, project-local `./.claude/skills/`, and any marketplace under `~/.claude/plugins/marketplaces/*/skills/`. The marketplace name is globbed because it varies per user; today it's `john-claude-skills`, but someone else might install the skill from a fork or a different marketplace entirely.
+
+The `--install-skill` path now also checks the discovery locations before downloading. If the skill is already discoverable somewhere, it warns and asks for confirmation before writing a duplicate copy to `~/.claude/skills/cringelinter/`. The destination for new installs stays at the user-level manual path, since that's the location least likely to get overwritten by a marketplace update.
+
+This is a good reminder that skills aren't a single-location concept anymore. With plugin marketplaces in the picture, any tool that depends on a skill needs to treat "is the skill installed" as a discovery problem, not a path-existence check.
 
 ---
