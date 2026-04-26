@@ -1,13 +1,13 @@
-Apply the cringelinter skill's rules to the markdown inside <file_content> below. The skill is a set of linting rules to apply inline — do not spawn a subagent, do not "wait" for analysis, do not describe what you will do. Do the work in this turn using the Write tool.
+Your job is to remove AI slop from this document. You do this by executing the skill named cringelinter against the markdown inside <file_content> below. Do not spawn a subagent, do not "wait" for analysis, do not describe what you will do. If you cannot find the cringelinter skill, immediately return with "FAIL: Cringelinter skill not found"
 
-Required steps, in this turn:
+Required steps:
 
-1. Apply every applicable cringelinter rule to the content.
-2. Use the Write tool to create a new file in the current working directory with an incremented version suffix:
+1. Execute the cringelinter skill to identify AI slop
+2. Use the Write tool to create a new file in the current working directory with an incremented version suffix. Examples:
    - input `myblog.md`     → write `myblog-v1.md`
    - input `myblog-v3.md`  → write `myblog-v4.md`
    The output file must contain the full revised document, not a diff or a summary.
-3. Append one JSON line per identification to `cringelog.jsonl` in the current working directory (create the file if missing). Each line:
+3. For all new cringelinter violations found, append one JSON line per identification to `cringelog.jsonl` in the current working directory (create the file if missing). Each line:
    `{"file": "<output filename>", "rule": "<rule id, e.g. 101>", "before": "<original phrase>", "after": "<replacement>"}`
    Before logging an identification, scan existing lines in `cringelog.jsonl` and skip any duplicate already addressed in a prior iteration.
 4. If fewer than three meaningful issues are found, end your response with the literal string `<promise>COMPLETE</promise>`. Otherwise end with one short sentence summarizing what changed.
