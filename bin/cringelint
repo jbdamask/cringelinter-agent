@@ -207,6 +207,10 @@ while [ "$count" -lt "$ITERATIONS" ]; do
         exit 0
     fi
 
+    if echo "$OUTPUT" | grep -q "FAIL: Cringelinter skill not found"; then
+        die "Claude could not load the cringelinter skill. Check that it's discoverable (try \`cringelint --install-skill\`)."
+    fi
+
     next_file=$(next_version "$current_file")
     if [ ! -f "$next_file" ]; then
         die "Expected output file '$next_file' was not created by Claude."
