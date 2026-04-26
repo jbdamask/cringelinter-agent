@@ -1,7 +1,15 @@
-Run your cringelinter skill against the provided blog post file.
+Apply the cringelinter skill's rules to the markdown inside <file_content> below. The skill is a set of linting rules to apply inline — do not spawn a subagent, do not "wait" for analysis, do not describe what you will do. Do the work in this turn using the Write tool.
 
-Write the output as a new file with an incremented version suffix: if the provided file is `myblog.md`, write `myblog-v1.md`; if it is `myblog-v3.md`, write `myblog-v4.md`.
+Required steps, in this turn:
 
-Compare every identification of cringe against cringelog.jsonl to see if it's been touched before (create the cringelog if it doesn't exist). Write a separate line in the log for each cringy identification and its replacement.
+1. Apply every applicable cringelinter rule to the content.
+2. Use the Write tool to create a new file in the current working directory with an incremented version suffix:
+   - input `myblog.md`     → write `myblog-v1.md`
+   - input `myblog-v3.md`  → write `myblog-v4.md`
+   The output file must contain the full revised document, not a diff or a summary.
+3. Append one JSON line per identification to `cringelog.jsonl` in the current working directory (create the file if missing). Each line:
+   `{"file": "<output filename>", "rule": "<rule id, e.g. 101>", "before": "<original phrase>", "after": "<replacement>"}`
+   Before logging an identification, scan existing lines in `cringelog.jsonl` and skip any duplicate already addressed in a prior iteration.
+4. If fewer than three meaningful issues are found, end your response with the literal string `<promise>COMPLETE</promise>`. Otherwise end with one short sentence summarizing what changed.
 
-If cringelinter finds less than three issues or negligible issues, respond with <promise>COMPLETE</promise>
+Do not begin your response with "I'll", "Let me", "I've launched", or any other narration of intent. A script is reading your output and checking the filesystem — if the versioned output file does not exist on disk after this turn, the run fails.

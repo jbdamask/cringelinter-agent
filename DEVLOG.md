@@ -6,7 +6,7 @@
 
 **Status:** Active
 **Started:** 2026-04-26
-**Last Updated:** 2026-04-26 (skill discovery fix)
+**Last Updated:** 2026-04-26 (prompt hardening)
 
 ---
 
@@ -46,5 +46,19 @@ The fix is to check every place Claude Code might discover a skill, not just the
 The `--install-skill` path now also checks the discovery locations before downloading. If the skill is already discoverable somewhere, it warns and asks for confirmation before writing a duplicate copy to `~/.claude/skills/cringelinter/`. The destination for new installs stays at the user-level manual path, since that's the location least likely to get overwritten by a marketplace update.
 
 This is a good reminder that skills aren't a single-location concept anymore. With plugin marketplaces in the picture, any tool that depends on a skill needs to treat "is the skill installed" as a discovery problem, not a path-existence check.
+
+---
+
+## 2026-04-26 - Prompt hardening for weaker models
+
+A run with `claude-haiku-4-5` exposed a brittleness in the original Ralph prompt. Haiku responded with *"I've launched cringelinter. Let me wait for the analysis to complete..."* — describing intent in conversational prose — and the headless turn ended without ever calling the Write tool. The script then correctly errored out because the expected `legal-training-blog-v1.md` didn't exist on disk.
+
+The diagnosis is that "Run your cringelinter skill" was ambiguous: a strong model (Sonnet) reads it as "apply the rules and produce the output," while a weaker model (Haiku) interprets it as "spawn this thing and wait for it." Skills aren't subprocesses, but the verb "run" invited that misread.
+
+The new `lib/prompt.txt` is more directive without being more verbose where it doesn't need to be. It tells Claude the skill is a set of rules to apply inline (not a subprocess), enumerates the required steps for the current turn (apply rules, use the Write tool now, append to cringelog, emit the COMPLETE sentinel when clean), specifies the cringelog as structured JSON with named keys (`file`, `rule`, `before`, `after`) instead of free-form lines, and explicitly bans narration openers like "I'll" and "Let me". It closes with the practical stake: a script is reading the filesystem after this turn — no file on disk means the run fails.
+
+The structured cringelog is a side benefit. The original prompt said "write a separate line in the log for each cringy identification" but didn't pin a format, so each iteration could drift. Named keys make the log queryable later if it's worth doing anything with it — joining iterations, counting which rules fire most, etc.
+
+This should make Haiku viable as a cheaper option, and shouldn't change Sonnet's behavior — Sonnet was already doing all of this implicitly.
 
 ---
